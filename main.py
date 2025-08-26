@@ -1,20 +1,61 @@
-import os
-import random
-import time
-from datetime import datetime
+import os, sys, time, webbrowser
 import pandas as pd
+import streamlit as st
+import plotly.express as px
+from PIL import Image as PILImage
+import numpy as np
+import matplotlib.pyplot as plt
+import json
+import streamlit.components.v1 as components
+import pdfplumber
+import re
+from io import BytesIO
+import time
+import random
+from datetime import datetime
 from shutil import copyfile
 import glob as gb
 import subprocess
-import numpy as np
 import shutil
 from pathlib import Path
 from collections import defaultdict
+import streamlit.web.cli as stcli
 from src import insertWall, insertConst, orient, lighting, equip, windows, insertRoof, wwr
-import sys
 import traceback
-import re
+from helper import *
+from report_ext import *
 from src import lv_b, ls_c, lv_d, pv_a_loop, sv_a, beps, bepu, lvd_summary, sva_zone, locationInfo, masterFile, sva_sys_type, pv_a_pump, pv_a_heater, pv_a_equip, pv_a_tower, ps_e, inp_shgc
+
+
+# --- Streamlit Page Config ---
+st.set_page_config(page_title="ECM Batch Run",page_icon="💡", layout='wide',)
+
+# --- Inject Custom CSS ---
+st.markdown("""
+    <style>
+        .block-container { padding-top: 0rem !important; }
+        header, main { margin-top: 0rem !important; padding-top: 0rem !important; }
+        .stButton>button { box-shadow: 1px 1px 1px rgba(0, 0, 0, 0.8); }
+        .heading-with-shadow {
+            text-align: left;
+            color: red;
+            text-shadow: 0px 8px 4px rgba(255, 255, 255, 0.4);
+            background-color: white;
+        }
+        body {
+            background-color: #bfe1ff;
+            animation: changeColor 5s infinite;
+        }
+        #MainMenu, footer, .viewerBadge_container__1QSob {visibility: hidden;}
+        header .stApp [title="View source on GitHub"] { display: none; }
+        .stApp header, .stApp footer {visibility: hidden;}
+        .stButton button {
+            height: 30px;
+            width: 166px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 
 # function to get report in csv and save in specific folders
 def get_report_and_save(report_function, name, file_suffix, folder_name, path):
@@ -465,235 +506,211 @@ def process_inp_file(inp_file):
     df.drop(columns=['Polygon'], inplace=True)
     return df
 
-from helper import *
-from report_ext import *
-
-
-location_id = ''
-####user Input 1. Name of user
-user_nm = input("Provide name of user running the code: ")
-user_nm = user_nm.replace(" ", "_")
-
-
-####user Input 2. location
-# Read the CSV file
-weather_df = pd.read_csv('database/Simulation_locations.csv')
-
-# Show available locations to the user
-print("Available Locations:")
-print(weather_df['Sim_location'].str.replace('IND_', '').tolist())
-print()
-
-# Get the location from the user, loop untill get correct location
-while True:
-    # Ask user to enter a location
-    user_input = input("Enter the location name from above list: ").strip().lower()
-
-    # Filter row where 'Sim_location' contains the user input
-    matched_row = weather_df[weather_df['Sim_location'].str.lower().str.contains(user_input)]
-
-    # Show result
-    if not matched_row.empty:
-        for index, row in matched_row.iterrows():
-            weather_path = row['Weather_file']
-            location_id = row['Location_ID']
-            print(f"\nLocation ID: {row['Location_ID']}")
-            print(f"Simulation Location: {row['Sim_location']}")
-            print(f"Weather File: {row['Weather_file']}")
-        break
+def resource_path(relative_path):
+    """Get absolute path to resource (works for dev and PyInstaller exe)"""
+    if getattr(sys, 'frozen', False):  # Running in exe
+        base_path = sys._MEIPASS
     else:
-        print("❌ Location not found. Please enter a valid option.")
+        base_path = os.path.dirname(__file__)
+    return os.path.join(base_path, relative_path)
 
-####user Input 3. input folder path and output folder path
-print("** Note: Paths should not contains any spaces **")
-inp_folder = input("Enter the INP folder path: ") #"E:/09_TestCode/00_ml_batch_run/20250630_3/seedinp" #
-output_inp_folder = input("Enter the output folder path: ") #"E:/09_TestCode/00_ml_batch_run/20250630_3/modifiedInp" #
+def main():
+    # Heading
+    _, col2, _ = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <h2 style='text-align: center; white-space: nowrap;'>
+            <span style='color:#FF5733;'>𝓡𝓾𝓷 𝓢𝓲𝓶𝓾𝓵𝓪𝓽𝓲𝓸𝓷 𝓸𝓯 𝓮𝓠𝓤𝓔𝓢𝓣</span>
+        </h2>
+        """, unsafe_allow_html=True)
 
+    st.markdown('<hr style="border:1px solid black">', unsafe_allow_html=True)
 
-# set Paths
-db_path = 'database/AllData.xlsx'
-output_csv = "Randomized_Sheet.csv"
-run_cnt=int(input("Enter the number of runs you want to generate: ") ) #10 # set run number here
+    # Load location database
+    csv_path = resource_path(os.path.join("database", "Simulation_locations.csv"))
+    weather_df = pd.read_csv(csv_path)
+    db_path = resource_path(os.path.join("database", "AllData.xlsx"))
+    output_csv = resource_path(os.path.join("database", "Randomized_Sheet.xlsx"))
+    updated_df = pd.read_excel(output_csv)
 
+    # Inputs
+    user_nm = "Rajeev"
+    col1, col2, col3 = st.columns(3)
+    locations = ["NewDelhi", "Ahemdabad", "Bangalore", "Chennai"]
 
-# Ensure output folder exists if not create output folder
-os.makedirs(output_inp_folder, exist_ok=True)
+    with col1:
+        project_name = st.text_input("📝 Project Name", placeholder="Enter project name")
+        st.markdown("""
+            <style>
+            div[data-testid="stFileUploader"] section {
+                padding: 0.25rem 0 !important;  /* Reduce vertical padding */
+            }
+            div[data-testid="stFileUploader"] div[role="button"] {
+                padding: 0.2rem 0.5rem !important;  /* Reduce height of clickable area */
+                font-size: 0.85rem !important;      /* Smaller text */
+            }
+            </style>
+        """, unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("📤 Upload a single eQUEST INP file", type=["inp"])
 
-# Step 1: Get all INP files from the input folder
-inp_files = [f for f in os.listdir(inp_folder) if f.endswith(".inp")]
-
-# Step 2: Read all sheets from the Excel file to load all data set
-xlsx_data = pd.ExcelFile(db_path)
-ignore_sheets = {"Wall_New","Roof_New","Material_DB", "Material_DB_IP"}  # sheets to skip
-
-sheet_data = {
-    sheet: pd.read_excel(db_path, sheet_name=sheet)
-    for sheet in xlsx_data.sheet_names
-    # if sheet not in ignore_sheets
-}
-
-# Step 3: Get row counts
-sheet_row_counts = {sheet: len(df) for sheet, df in sheet_data.items()}
-
-# # Step 4: Determine the new Batch_ID
-if os.path.exists(output_csv):
+    with col2:
+        user_input = st.selectbox("🌍 Select Location", locations).strip().lower()
     
-    existing_df = pd.read_csv(output_csv)
-    last_batch_id = existing_df["Batch_ID"].max() if "Batch_ID" in existing_df.columns else 0
-else:
-    last_batch_id = 0
-new_batch_id = last_batch_id + 1  # Increment Batch_ID
-
-# Step 5: Generate 600 random selections
-batch_data = []
-timestamp = datetime.now().strftime("%d-%m-%Y %H:%M")
-
-
-for run_id in range(1, run_cnt):  # Generate 600 rows
-    inp_file = random.choice(inp_files)  # Random INP file
+    with col3:
+        typology = st.text_input("🏠 Enter Building Typology", placeholder="Enter Typology")
     
-    # Select unique row numbers from each sheet
-    selected_rows = {}
-    for sheet, row_count in sheet_row_counts.items():
-        if row_count > 0:
-            # selected_rows[sheet] = random.randint(1, row_count)  # Random row number (1-based index)
-            selected_rows[sheet] = random.randint(0, row_count - 1)
+    # with col4:
+    if uploaded_file:
+        # Save uploaded file in current working directory (same as your app folder)
+        uploaded_inp_path = os.path.join(os.getcwd(), uploaded_file.name)
+        with open(uploaded_inp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        # Output folder = same folder where uploaded file is saved
+        output_inp_folder = os.path.dirname(uploaded_inp_path)
+        inp_folder = output_inp_folder
+            # st.text_input("📁 Output Folder Path", value=output_inp_folder, disabled=True)
+
+    # with col4:
+    #     output_inp_folder = st.text_input("📁 Output Folder Path", placeholder="Type or paste the output folder path")
+    #     inp_folder = output_inp_folder
+    #     if uploaded_file:
+    #         os.makedirs(inp_folder, exist_ok=True)
+    #         uploaded_inp_path = os.path.join(inp_folder, uploaded_file.name)
+            
+    run_cnt = 1
+    location_id, weather_path = "", ""
+    matched_row = weather_df[weather_df['Sim_location'].str.lower().str.contains(user_input)]
+    if not matched_row.empty:
+        location_id = matched_row.iloc[0]['Location_ID']
+        weather_path = matched_row.iloc[0]['Weather_file']
+    elif user_input:
+        st.error("❌ Location not found.")
+
+    # Start simulation
+    if st.button("🚀 Start Simulation"):
+        os.makedirs(output_inp_folder, exist_ok=True)
+        new_batch_id = f"{int(time.time())}"  # unique ID
+
+        selected_rows = updated_df[updated_df['Batch_ID'] == run_cnt]
+        batch_output_folder = os.path.join(output_inp_folder, f"{user_nm}_Batch_{new_batch_id}")
+        os.makedirs(batch_output_folder, exist_ok=True)
+
+        num = 1
+        modified_files = []
+        for _, row in selected_rows.iterrows():
+            selected_inp = row["Selected_INP"]
+            new_inp_name = f"{row['Wall']}_{row['Roof']}_{row['Glazing']}_{row['Orient']}_{row['Light']}_{row['WWR']}_{row['Equip']}_{selected_inp}"
+            new_inp_path = os.path.join(batch_output_folder, new_inp_name)
+
+            inp_file_path = os.path.join(inp_folder, selected_inp)
+            if not os.path.exists(inp_file_path):
+                st.error(f"File {inp_file_path} not found. Skipping.")
+                continue
+
+            # st.info(f"Modifying INP file {num}: {selected_inp} -> {new_inp_name}")
+            num += 1
+
+            # Apply modifications
+            inp_content = wwr.process_window_insertion_workflow(inp_file_path, row["WWR"] + 1)
+            inp_content = orient.updateOrientation(inp_content, row["Orient"])
+            inp_content = lighting.updateLPD(inp_content, row['Light'])
+            inp_content = insertWall.update_Material_Layers_Construction(inp_content, row["Wall"])
+            inp_content = insertRoof.update_Material_Layers_Construction(inp_content, row["Roof"])
+            inp_content = insertRoof.removeDuplicates(inp_content)
+            inp_content = equip.updateEquipment(inp_content, row['Equip'])
+            inp_content = windows.insert_glass_types_multiple_outputs(inp_content, row['Glazing'])
+
+            with open(new_inp_path, 'w') as file:
+                file.writelines(inp_content)
+            modified_files.append(new_inp_name)
+        st.markdown(
+            "<strong>🔧 Modified Files →</strong> " +
+            "".join([
+                f"<span style='background:#e0f7fa; color:#00796b; padding:4px 8px; "
+                f"border-radius:12px; margin:2px; display:inline-block;'>"
+                f"{name}</span>"
+                for name in modified_files
+            ]),
+            unsafe_allow_html=True
+        )
+
+
+        simulate_files = []
+        # Copy and run batch script
+        if uploaded_file is None:
+            st.error("Please upload an INP file before starting the simulation.")
         else:
-            selected_rows[sheet] = None  # If the sheet is empty
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            shutil.copy(os.path.join(script_dir, "script.bat"), batch_output_folder)
+            inp_files = [f for f in os.listdir(batch_output_folder) if f.lower().endswith(".inp")]
+            for inp_file in inp_files:
+                file_path = os.path.join(batch_output_folder, os.path.splitext(inp_file)[0])
+                subprocess.call(
+                    [os.path.join(batch_output_folder, "script.bat"), file_path, weather_path],
+                    shell=True
+                )
+                simulate_files.append(inp_file)
+            st.markdown(
+                "<strong>⚡ Simulated Files →</strong> " +
+                "".join([
+                    f"<span style='background:#e0f7fa; color:#00796b; padding:4px 8px; "
+                    f"border-radius:12px; margin:2px; display:inline-block;'>"
+                    f"{name}</span>"
+                    for name in simulate_files
+                ]),
+                unsafe_allow_html=True
+            )
+            # subprocess.call([os.path.join(batch_output_folder, "script.bat"), batch_output_folder, weather_path], shell=True)
+            
+            required_sections = ['BEPS', 'BEPU', 'LS-C', 'LV-B', 'LV-D', 'PS-E', 'SV-A']
+            log_file_path = check_missing_sections(batch_output_folder, required_sections, new_batch_id, user_nm)
+            get_failed_simulation_data(batch_output_folder, log_file_path)
+            clean_folder(batch_output_folder)
+            get_files_for_data_extraction(batch_output_folder, log_file_path, new_batch_id, location_id, user_nm)
+        logFile = pd.read_excel(log_file_path)
+        total_runs = len(updated_df)
+        total_sims = len(logFile)
+        success_count = (logFile["Status"] == "Success").sum()
+        success_rate = (success_count / total_sims) * 100 if total_sims > 0 else 0
+        # 5 equal columns
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.markdown(
+                "<div style='background:#e8f5e9; padding:15px; border-radius:12px; text-align:center;'>"
+                "✅ <br><b>Completed</b><br>Simulation & Extraction</div>",
+                unsafe_allow_html=True
+            )
 
-    # Append data
-    row_data = [new_batch_id, run_id, timestamp, inp_file] + [selected_rows[sheet] for sheet in sheet_row_counts.keys()] + [user_nm]
-    batch_data.append(row_data)
+        with col2:
+            st.markdown(
+                "<div style='background:#f3e5f5; padding:15px; border-radius:12px; text-align:center;'>"
+                "📊 <b>Log File</b></div>",
+                unsafe_allow_html=True
+            )
+            with st.expander("🔽 Click to View Log File"):
+                st.dataframe(logFile, use_container_width=True)
+                
+        with col3:
+            st.markdown(
+                f"<div style='background:#e3f2fd; padding:15px; border-radius:12px; text-align:center;'>"
+                f"🧮 <br><b>Total Runs</b><br>{total_runs}</div>",
+                unsafe_allow_html=True
+            )
 
-# Step 6: Convert to DataFrame
-columns = ["Batch_ID", "Run_ID", "Timestamp", "Selected_INP"] + list(sheet_row_counts.keys()) + ["RunningUser"]
-batch_df = pd.DataFrame(batch_data, columns=columns)
+        with col4:
+            st.markdown(
+                f"<div style='background:#ede7f6; padding:15px; border-radius:12px; text-align:center;'>"
+                f"🧮 <br><b>Total Sims</b><br>{total_sims}</div>",
+                unsafe_allow_html=True
+            )
 
-# Step 7: Append to CSV
-if os.path.exists(output_csv):
-    batch_df.to_csv(output_csv, mode='a', header=False, index=False)
-else:
-    batch_df.to_csv(output_csv, index=False)
+        with col5:
+            st.markdown(
+                f"<div style='background:#fff3e0; padding:15px; border-radius:12px; text-align:center;'>"
+                f"📈 <br><b>Success Rate</b><br>{success_rate:.2f}%</div>",
+                unsafe_allow_html=True
+            )
 
-# batch_df = pd.read_csv('Randomized_Sheet.csv')
-# print(batch_df)
-# new_batch_id = 1 # delete this
-# run_cnt = 2
-#exit()
-
-print(f"Processing complete! Batch_ID {new_batch_id} with {run_cnt} runs appended to:", output_csv)
-
-# ----------------------------- MODIFY INP FILES BASED ON GENERATED DATA -----------------------------
-# Step 8: Read the latest batch from CSV
-updated_df = pd.read_csv(output_csv)
-#print(updated_df)
-
-# Step 2: Extract the prefix from Selected_INP (before first '_')
-updated_df['prefix'] = updated_df['Selected_INP'].str.split('_').str[0]
-
-# Step 3: Create 'CheckUnique' column
-updated_df['CheckUnique'] = (
-    updated_df['prefix'] + '_' +
-    updated_df['Wall'].astype(str) + '_' +
-    updated_df['Roof'].astype(str) + '_' +
-    updated_df['Glazing'].astype(str) + '_' +
-    updated_df['Orient'].astype(str) + '_' +
-    updated_df['Light'].astype(str) + '_' +
-    updated_df['WWR'].astype(str) + '_' +
-    updated_df['Equip'].astype(str) +
-    '.inp'
-)
-
-# Step 4: Drop duplicates based on CheckUnique
-updated_df = updated_df.drop_duplicates(subset='CheckUnique')
-
-# Step 5: Drop the helper column 'prefix' (optional)
-updated_df = updated_df.drop(columns='prefix')
-updated_df = updated_df.drop(columns='CheckUnique')
-
-# Step 9: Select the last 600 rows
-selected_rows =updated_df[updated_df['Batch_ID'] == new_batch_id] #updated_df.iloc[:10]
-#print(selected_rows)
-
-output_inp_folder = os.path.join(output_inp_folder, user_nm+"_Batch_"+str(new_batch_id))
-os.makedirs(output_inp_folder, exist_ok=True)
-
-num = 1
-for index, row in selected_rows.iterrows():
-    selected_inp = row["Selected_INP"]
-    new_inp_name = f"{0}_{0}_{0}_{0}_{0}_{0}_{0}_{selected_inp}"
-    new_inp_path = os.path.join(output_inp_folder, new_inp_name)
-
-    inp_file_path = os.path.join(inp_folder, selected_inp)
-    if not os.path.exists(inp_file_path):
-        print(f"File {inp_file_path} not found. Skipping modification.")
-        continue
-
-    print(f"Modifying INP file{num}: {selected_inp} -> {new_inp_name}")
-    num = num + 1
-    inp_content = wwr.process_window_insertion_workflow(inp_file_path, 4 + 1)
-    print("Modified WWR")
-    inp_content = orient.updateOrientation(inp_content, 2)
-    print("Modified Orientation")
-    inp_content = lighting.updateLPD(inp_content, 0)
-    print("Modified Light")
-    inp_content = insertWall.update_Material_Layers_Construction(inp_content, 0)
-    print("Modified Wall")
-    inp_content = insertRoof.update_Material_Layers_Construction(inp_content, 0)
-    inp_content = insertRoof.removeDuplicates(inp_content)
-    print("Modified Roof")
-    inp_content = equip.updateEquipment(inp_content, 0)
-    print("Modified Equipment")
-    inp_content = windows.insert_glass_types_multiple_outputs(inp_content, 0)
-    print("Modified Glazing\n")
-    
-    with open(new_inp_path, 'w') as file:
-        file.writelines(inp_content)
-
-    print(f"Successfully modified and saved: {new_inp_name}\n")
-
-print(f"Batch {new_batch_id} generated, and INP files modified successfully!\n\n")
-
-####### copy script.bat file to output folder and running simulations
-script_dir = os.path.dirname(os.path.abspath(__file__))  # current .py file directory
-
-source_file = os.path.join(script_dir, "script.bat")
-destination_folder = output_inp_folder
-shutil.copy(source_file, destination_folder)
-
-bat_file_path = os.path.join(destination_folder, "script.bat")
-subprocess.call([bat_file_path, output_inp_folder, weather_path], shell=True)
-
-#### Extracting result
-
-## checking for missing section in sim file and log it
-required_sections = ['BEPS', 'BEPU', 'LS-C', 'LV-B', 'LV-D', 'PS-E', 'SV-A']
-log_file_path = check_missing_sections(output_inp_folder, required_sections, new_batch_id, user_nm)
-
-# Step 12: Clean up - Delete all files except .inp and .sim
-get_failed_simulation_data(output_inp_folder, log_file_path)
-clean_folder(output_inp_folder)
-
-
-######################################################################################
-# Step = Organize matching inp and sim to folders
-#organize_file_2_folder(output_inp_folder)
-
-
-get_files_for_data_extraction(output_inp_folder,log_file_path,new_batch_id, location_id,user_nm)
-exit()
-
-# 
-""" next_script = "file.py"
-try:
-    print(f"\nExecuting: {next_script}")
-    result = subprocess.run(['python', next_script], check=True, capture_output=True, text=True)
-    print(result.stdout)
-except subprocess.CalledProcessError as e:
-    print(f"Script {next_script} failed with exit code {e.returncode}")
-    print("Error Output:\n", e.stderr)
-except Exception as e:
-    print(f"Failed to run script {next_script}: {e}")
-    traceback.print_exc()
-finally:
-    print("Moving to next step...") """
+if __name__ == "__main__":
+    main()
