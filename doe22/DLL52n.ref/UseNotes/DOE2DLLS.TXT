@@ -1,0 +1,153 @@
+   (c) Copyright 1998, James J. Hirsch.  All Rights Reserved.
+
+Direct use of DOE-2.2 32-bit DLL's
+  (for those with high pain threshold, others should use CIO routines
+   as documented in CioUsage.txt)
+
+doebdl32.dll
+
+  two entry points:  
+            INTEGER FUNCTION INIT_BDL( )
+               returns 32-bit far pointer to iargs
+            INTEGER FUNCTION READ_BDL( )
+               returns long int which is number of fatal BDL errors
+
+  return value of INIT_BDL is a long integer pointer (32-bit far ptr)
+         to the /bdl_struct/ as defined below for structure 
+         (note that lengths are in "words" not bytes and that directory
+         names are right justified in the number of 4-byte words as
+         defined in their length variable; input file name, USRLIB and 
+         weather file path\name's are left justified - input is full file 
+         name with extension, assumed to be .inp)
+
+         INIT_BDL only called once to allocate the
+         iargs structure used for 1 or more READ_BDL
+         calls.  iargs must be filled by calling app
+         before each READ_BDL call so that file names
+         and directory names are set correctly.
+
+  the "working" directory is the directory where input file 
+         is to be found (and all output is placed) and "file" directory
+         is were all doe-2 files are found (bdlkey.bin, bdllib.dat, etc.)
+
+  return value of READ_BDL is a long integer set to the number of BDL
+         errors found upon reading the input
+
+  output files
+
+         file.bdl - BDL input echo/output file
+         file.log - BDL run log file
+         file.std - the BDL -> simulation data file
+         file.ctl - the BDL -> simulation control file
+            where "file" is the input file basename
+
+
+      structure /bdl_struct/
+         integer openNewFlag
+
+         integer fDirLgth     ! length of file directory name in 4-byte words
+         integer wDirLgth     ! length of working directory name in 4-byte words
+         integer iFileLgth    ! length of input file name in 4-byte words
+         integer wFileLgth    ! length of weather file path\name in 4-byte words
+         integer fDirLoc(64)  ! file directory name, right justified
+         integer wDirLoc(64)  ! working directory name, right justified
+         integer iFileLoc(64) ! input file name, left justified
+         integer wFileLoc(64) ! weather file path\name, left justified
+         integer nDOE2Ver     ! 0=>DOE-2.2, 1=>DOE-2.3 (refrig.)
+         integer nCommands
+         integer nUnits
+         integer kUnit
+         integer commandPtr
+         integer nSymbolPtr
+         integer unitConvPtr
+         integer unitsBlockPtr
+         integer AA_ArrayPtr
+         integer unitsTypePtr
+         integer undefPtr
+         integer pd_opcode
+         integer pd_sub_opcode
+         integer pd_opcdt_indx
+         integer pd_ref_tbl_indx
+         integer pd_object_name(8)
+         integer lFileLgth    ! length of USRLIB file path\name in 4-byte words
+         integer lFileLoc(32) ! USRLIB file path\name, left justified
+         integer libIndexPtr
+         integer parametersPtr
+         integer IaxPtr
+         integer nvtlimPTR
+         integer ivtlimPTR
+         integer LibLnkPTR
+         integer nLibLkPTR
+         integer expDepLstListPt
+         integer pCallbackFun  ! CallBack function pointer
+      end structure
+
+
+
+doesim32.dll
+
+  two entry points: INTEGER FUNCTION INIT_SIM() !returns long int ptr to iargs
+                        INIT_SIM only called once to allocate the
+                        iargs structure used for 1 or more RUN_SIM
+                        calls.  iargs must be filled by calling app
+                        before each RUN_SIM call so that file names
+                        and directory names are set correctly.
+                    INTEGER FUNCTION RUN_SIM ()  !iargs filled before call
+                        called to execute a simulation using the files
+                        defined in iargs structure and BDL output found in
+                        the working directory defined in iargs
+
+  where iargs is an long integer pointer to a structure as follows
+        (note that lengths are in "words" not bytes and that directory
+         names are right justified in the number of 4-byte words as
+         defined in their length variable; input file name is left
+         justified and is full file name with extension - assumed
+         to be .inp)
+
+  the "working" directory is the directory where input file 
+         is to be found (and all output is placed) and "file" directory
+         is were all doe-2 files are found (hdrfil.bin, etc.)
+
+  return value of INIT_SIM is a long integer set to a pointer to a structure
+         sim_struct as defined below
+  return value of RUN_SIM is a long integer set to the number of Simulation
+         errors found upon reading the input
+
+  output files
+
+         file.sim - Simulation output/results file
+         file.log - Simulation run log file
+         file.?in - Simulation hourly-report binary output files
+         file.?rp - Simulation sum/verif binary report output files
+            where "file" is the input file basename
+                  "?" is l=LOADS, s=SYSTEMS/PLANT, e=ECONOMICS
+
+      structure /sim_struct/
+         integer openNewFlag   
+         integer fDirLgth      ! length of file directory name in 4-byte words
+         integer wDirLgth      ! length of working directory name in 4-byte words
+         integer iFileLgth     ! length of input file name in 4-byte words
+         integer wFileLgth     ! length of weather file name in 4-byte words
+         integer fDirLoc(64)   ! file directory name, right justified
+         integer wDirLoc(64)   ! working directory name, right justified
+         integer iFileLoc(64)  ! input file name, left justified
+         integer wFileLoc(64)  ! weather file full path/file name, left justified
+         integer pCallbackFunc ! long interger pointer to CALLBACK function
+      end structure
+
+   use of CALLBACK function
+
+   if the pCallbackFunc is not equal to null it is used as a ptr of type
+   CALLBACK to be called and pass in the following values
+     IPROG  - the current program being run
+        (1=LOADS, 2=SYSTEMS/PLANT, 4=ECONOMICS, 
+         5=SUM/VERIF-REPORTS, 6=HOURLY-REPORTs)
+     IDtype - the day type of current simulation hour
+        (0....10 = initialization,Sun, Mon, .... Sat, Hol, DesDay 1, DesDay 2)
+     IMonth - the year of current simulation hour
+     IDay   - the year of current simulation hour
+     IYear  - the year of current simulation hour
+
+   the CALLBACK funtion return either 0 or non-zero value, if the return
+   is non-zero the simulation is aborted and control return to call app.
+

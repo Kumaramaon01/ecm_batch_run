@@ -1,0 +1,228 @@
+   (c) Copyright 1999, Scott A. Criswell.  All Rights Reserved.
+
+This file describes how to interface with the BDLCIO32 and SimCIO32
+DLLs in order to read BDL inputs files and perform DOE-2.2
+simulations. This is the easier method (you can also call DOE-2
+DLL's directly - see DOE2dlls.txt)
+
+
+----------------------------------------------------------------------
+UPDATES:
+----------------------------------------------------------------------
+ 8/31/99 - SAC - VisualBasic Users - We have added VB-compatible versions
+                 of each of the function calls described below.  Your
+                 VB code should use the same arguments, but the function
+                 names should be *_VB*().  For example, instead of calling
+                 BDLCIO32_Init(), you should call BDLCIO32_VBInit().
+ 1/ 8/99 - SAC - Inserted a new fifth argument to SimCIO32_RunSimulation()
+                 which when set to 1 prevents the DOESIM32.dll from
+                 popping up message boxes to the screen while performing
+                 a simulation (a value of 0 causes the messages to
+                 appear like previous versions)
+ 1/ 6/99 - SAC - Inserted a new fifth argument to BDLCIO32_ReadInput()
+                 which when set to 1 prevents the DOEBDL32.dll from
+                 popping up message boxes to the screen while reading
+                 BDL input files (a value of 0 causes the messages to
+                 appear like previous versions)
+
+
+----------------------------------------------------------------------
+Step 1)  Initialization of the DLLs:
+----------------------------------------------------------------------
+   Call these functions during initialization of the application or
+   DLL which will interface with the BDLCIO32 and SimCIO32 DLLs. These
+   functions should only be called once per session, not once for each
+   BDL input file processed.
+
+      // Initialize BDL DLL
+      BDLCIO32_Init();      // exported from BDLCIO32.dll
+
+      // Initialize SIM DLL
+      SimCIO32_Init();      // exported from SimCIO32.dll
+      
+
+----------------------------------------------------------------------
+Step 2)  Read a DOE-2.2 BDL input file:
+----------------------------------------------------------------------
+   Call this function to read a BDL input file and write a simulation
+   standard file, along with other miscellaneous outputs.  Once the
+   simulation standard file is present in the directory where the
+   BDL input resides, the simulation can be called one or more times.
+
+   The value returned from this call to read the input file is the
+   number of fatal errors encountered by BDL => a return value of 0
+   means success.  A return value > 0 indicates that number of errors
+   and a simulation should not be performed until the input can be
+   read successfully.
+
+      long BDLCIO32_ReadInput( const char* workDir,
+                               const char* doe2Dir,
+                               const char* fileName,
+                               const char* libFileName,
+                               long lNoScrnMsg,
+                               int bWriteNHKFile,
+                               void* pCallbackFunc );
+
+      where:
+         workDir     => Directory where BDL input resides (including
+                        a trailing '\').
+         doe2Dir     => Directory where DOE-2 system files (such as
+                        BDLKey.bin, BDLLib.dat, etc.) are stored
+                        (including a trailing '\').
+         fileName    => The name of the BDL input file without any
+                        directory but with the file extension.
+         libFileName => The full path and file name of the BDL user
+                        library file.
+         lNoScrnMsg  => Long integer flag indicating whether or not
+                        you would like BDL error message boxes to
+                        popup while the input file is being read.
+                        A value of 1 prevents the messages, while a
+                        value of 0 allows them to appear.
+         bWriteNHKFile => Integer flag indicating whether or not to
+                          write an NHK file (only performed if the
+                          read operation was successful). (1 =>
+                          write NHK file, 0 => don't).  NHK files
+                          may be necessary for certain results
+                          retrieval functionality.  Refer to the
+                          ResUsage.txt file for information on 
+                          retrieving results from the binary 
+                          DOE-2.2 results files.
+         pCallbackFunc => Callback function pointer (not yet
+                          implemented => always pass NULL or 0).
+
+      example:
+         In order to read the input file:
+               C:\WinDOE2\Projects\Small Office\Sm-off.inp
+
+         Where the DOE-2 system files are located in the directory:
+               C:\WinDOE2\DOE-2\
+
+            and where we DO want BDL error messages to popup in
+            message boxes as the input file is being read (0)
+
+            and where we DO want to create an NHK file for use
+            later in retrieving binary Non-Hourly results (1)
+
+         Implement this call:
+            long lNumErrors = BDLCIO32_ReadInput(
+                          "C:\\WinDOE2\\Projects\\Small Office\\",
+                          "C:\\WinDOE2\\DOE-2\\",
+                          "Sm-off.inp",
+                          "C:\\WinDOE2\\DOE-2\\Usrlib.dat",
+                          0, 1, NULL );
+            Notes: - The double backslashes in the above function
+                     call are replaced by single backslash characters
+                     when using the C language.
+                   - Each string must be NULL-terminated.
+
+
+----------------------------------------------------------------------
+Step 3)  Run a DOE-2.2 Simulation:
+----------------------------------------------------------------------
+   Call this function to perform a DOE-2.2 simulation.  This call
+   is very similar to the read BDL input call presented above, with
+   the exceptions that you provide a weather filename instead of a BDL
+   user library filename and the callback function argument is
+   utilized by the simulation.
+
+   The value returned from this call is:
+               0 => successful simulation completion
+               1 => simulation error which caused an abort
+               2 => user aborted (via callback function return value)
+      
+
+      long SimCIO32_RunSimulation( const char* workDir,
+                                   const char* doe2Dir,
+                                   const char* fileName,
+                                   const char* wthrFileName,
+                                   long lNoScrnMsg,
+                                   PUICallbackFunc pCallbackFunc );
+
+      where:
+         workDir      => Directory where BDL input resides (including
+                         a trailing '\').
+         doe2Dir      => Directory where DOE-2 system files (such as
+                         BDLKey.bin, BDLLib.dat, etc.) are stored
+                         (including a trailing '\').
+         fileName     => The name of the BDL input file without any
+                         directory but with the file extension.
+         wthrFileName => The full path and file name of the packed
+                         binary DOE-2 weather file.
+         lNoScrnMsg   => Long integer flag indicating whether or not
+                         you would like simulation error message boxes
+                         to popup while the input file is being read.
+                         A value of 1 prevents the messages, while a
+                         value of 0 allows them to appear.
+         PUICallbackFunc => address of a callback function which
+                            accepts 5 32-bit long integer arguments
+                            and returns a 32-bit long integer value.
+            => typedef long (CALLBACK* PUICallbackFunc) ( long l1,
+                               long l2, long l3, long l4, long l5 );
+               where:  l1 = Sim process ( 0=>Init, 1=>Loads,
+                              2=>HVAC, 3=>Plant, 4=>Econ,
+                              5=>Writing Summary and Verif. Reports,
+                              6=>Writing Hourly Reports )
+                       l2 = Day-of-week ( 0=Sun - 7=Sat, 8=Hol,
+                              9=HDD, 10=CDD )
+                       l3 = Month (1-12)
+                       l4 = Day number (for current month)
+                       l5 = Year
+         pCallbackFunc => Callback function pointer which is called
+                          during the DOE-2 simulation initialization
+                          and prior to the simulation of each day's
+                          loads, HVAC and economics calculations.
+                          The function pointed to by this argument
+                          should return 1 to abort the simulation
+                          or 0 to allow the simulation to proceed
+                          uninterupted.
+                          Set this argument to NULL if you do not
+                          wish to present simulation status
+                          information or enable simulation to be
+                          aborted by the user.
+      example:
+         In order to run a simulation on this input file:
+               C:\WinDOE2\Projects\Small Office\Sm-off.inp
+            which has previously been read by BDL (either during
+            this session or at some time prior).
+
+         Where the DOE-2 system files are located in the directory:
+               C:\WinDOE2\DOE-2\
+
+         And the desired DOE-2 packed binary weather file:
+               C:\WinDOE2\Weather\TMY2\San-dica.bin
+
+            and where we DO want simulation error messages to popup
+            in message boxes (0)
+
+         Implement this call:
+            long lSimReturn = SimCIO32_RunSimulation(
+                          "C:\\WinDOE2\\Projects\\Small Office\\",
+                          "C:\\WinDOE2\\DOE-2\\",
+                          "Sm-off.inp",
+                          "C:\\WinDOE2\\Weather\\TMY2\\San-dica.bin",
+                          0, NULL );
+            note: the double backslashes in the above function call
+                  are replaced by single backslash characters when
+                  the call is performed and each string is NULL-
+                  terminated.
+
+
+----------------------------------------------------------------------
+for information re: retrieving results from the binary DOE-2.2 results
+files, refer to the ResUsage.txt file
+----------------------------------------------------------------------
+
+
+----------------------------------------------------------------------
+Step Final)  Unload the DOE-2.2 DLLs:
+----------------------------------------------------------------------
+   Call these functions during termination of the application or
+   DLL which will interface with the BDLCIO32 and SimCIO32 DLLs. These
+   functions should only be called once per session, not once for each
+   BDL input file processed.
+
+      // Unload BDL DLL
+      BDLCIO32_Exit();       // exported from BDLCIO32.dll
+
+      // Unload SIM DLL
+      SimCIO32_Exit();       // exported from SimCIO32.dll
