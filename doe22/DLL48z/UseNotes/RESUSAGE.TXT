@@ -1,0 +1,223 @@
+   (c) Copyright 1999-2013 James J. Hirsch.  All Rights Reserved.
+
+This file describes how to interface with the D2Result DLL in
+order to retrieve simulation results from the DOE-2.2 binary
+results files.  
+
+
+----------------------------------------------------------------------
+UPDATES:
+----------------------------------------------------------------------
+ 8/31/99 - SAC - VisualBasic Users - We have added VB-compatible versions
+                 of each of the rest of the functions exported from the
+                 D2Result.dll.  Your VB code should use the same arguments,
+                 but the function names should be *_VB*().  For example,
+                 instead of calling D2R_GetMultipleResult(...), you
+                 should call D2R_VBGetMultipleResult(...).
+ 8/22/99 - SAC - VisualBasic Users - We have added a function call
+                 which is equivalent to D2R_GetSingleResult() but uses
+                 a calling convention compatible with VisualBasic.
+                 This new function is called D2R_VBGetSingleResult()
+                 and takes the exact same arguments as its counterpart.
+                 No such VB-compatible D2R_GetMultipleResult() counter-
+                 part exists.  Please contact us if you would like one
+                 added.
+----------------------------------------------------------------------
+
+
+Results retrieval is current available only from the Non-Hourly
+results files for Loads, HVAC and Economics.
+
+The D2Result.DLL library is based on MFC (Microsoft Foundation
+Classes) and therefore requires that the following files be
+installed into your Windows\System directory:
+   MFC42.DLL   (~975 kb)
+   MSVCRT.DLL  (~250 kb)
+You can find these files located in the \System directory of
+this distribution.
+These files are the latest updates that are reported to be
+fully compatible with previous versions.  However, we do
+recommend that you save older versions of these files in the
+event these new files are incompatible with other software
+running on your machine.
+
+Unlike interfacing with the BDLCIO32 and SimCIO32 DLLs, the
+D2Result DLL does not interface directly with any other 
+executable code.  As a result, there are no DLL initialization
+or clean-up routines.  The only things you need do are to load
+and unload the DLL using whatever mechanism is available to
+your in your development environment and to call the various
+exported functions much like you would any other DLL you
+interface with.
+
+The following is a description of the functions exported from
+D2Result.DLL:
+(for more details, refer to the D2ResX.h header file and the
+ top portion ofthe NHRList.txt file)
+
+1) Retrieval of a single value or array of values:
+      long D2R_GetSingleResult( const char* pszDOE2Dir,
+                                const char* pszFileName,
+                                int iEntryID,
+                                float* pfData,
+                                int iMaxValues,
+                                const char* pszReportKey,
+                                const char* pszRowKey );
+
+      Return Value:
+            >= 0 => successful - # of values retrieved
+            <  0 => failed - refer to the D2ResX.h header file for
+                    descriptions of the various return values.
+
+      Where:
+         pszDOE2Dir   => Directory where DOE-2 system files (such as
+                         BDLKey.bin, BDLLib.dat, etc.) are stored
+                         (including a trailing '\').
+         pszFileName  => The full path and filename of the BDL input
+                         file without the trailing dot or file
+                         extension.
+                         (i.e. if your DOE-2 input filename is:
+                          "C:\My Dir\Projects\Wall Mart\Wall Mart.inp"
+                          then pszFileName should be:
+                          "C:\My Dir\Projects\Wall Mart\Wall Mart")
+         iEntryID     => Integer value identifying the value or series
+                         to be retrieved.  These values are defined in
+                         the first column of DOE-2\NHRList.txt file.
+         pfData       => Address of an array of 32-bit floating point
+                         numbers to be populated with results.
+         iMaxValues   => Number of floats defined in above array.
+                         (this value should correspond to the value
+                          in the "NI" column of the NHRList.txt entry
+                          describing the result(s) you are retrieving)
+         pszReportKey => Used only when retrieving results from a
+                         non-hourly report which is repeated over
+                         multiple components of a particular type.
+                         This argument contains a NULL-terminated
+                         character string identifying the building
+                         component for which you are retrieving the
+                         results.
+                         This argument must contain a valid string
+                         whenever the "RI" column of the selected
+                         NHRList.txt data contains a value > 0.
+         pszRowKey    => Used only when retrieving results from a
+                         report which contains multiple rows of data
+                         where each row provides results for a separate
+                         building component or month of the year.
+                         This argument contains a NULL-terminated
+                         character string identifying the row of data
+                         which you are retrieving the results for.
+                         This argument must contain a valid string
+                         whenever the "KT" column of the selected
+                         NHRList.txt data contains a value > 0.
+
+      Example:
+         To retrieve the total site energy use for a building (from the
+         BEPS report):
+            To determine iEntry, open the NHRList.txt file and search
+            for "BEPS" to find: "2001   BEPS  Building Energy..."
+            The "2001" is the first four digits of the iEntryID, then
+            we do another search for "2001   BEPS" to get down to the
+            area where the BEPS report entries are defined.  Once there
+            we examine the text to the far right of each entry which
+            provides a description of the results which that entry
+            retrieves data for.  We find that the entry ID 2001001
+            retrieves "Total Site Energy (BTU)".
+
+            Here's what the call looks like (in 'C'):
+
+               float fResult;
+               long lRetVal = D2R_GetSingleResult(
+                                 "E:\\WinDOE2\\doe-2\\",
+                                 "E:\\WinDOE2\\Projects\\Proj1\\Proj1",
+                                 2001001, &fResult, 1, NULL, NULL );
+
+
+2) When retrieving mutliple single values or arrays of results from the
+   same Non-Hourly results file, it is most efficient to use a different
+   function in order to retrieve all the results at once:
+
+      long D2R_GetMultipleResult( const char* pszDOE2Dir,
+                                  const char* pszInpFileName,
+                                  int iFileType,
+                                  float* pfData,
+                                  int iMaxValues,
+                                  int iNumMRTs,
+                                  MultResultsType* pMRTs );
+
+      Return Value:
+            >= 0 => successful - # of values retrieved
+            <  0 => failed - refer to the D2ResX.h header file for
+                    descriptions of the various return values.
+
+      Where:
+         pszDOE2Dir   => Directory where DOE-2 system files (such as
+                         BDLKey.bin, BDLLib.dat, etc.) are stored
+                         (including a trailing '\').
+         pszFileName  => The full path and filename of the BDL input
+                         file without the trailing dot or file
+                         extension.
+                         (i.e. if your DOE-2 input filename is:
+                          "C:\My Dir\Projects\Wall Mart\Wall Mart.inp"
+                          then pszFileName should be:
+                          "C:\My Dir\Projects\Wall Mart\Wall Mart")
+         iFileType    => 0 for Loads results, 1 for HVAC and simulated
+                         Energy Use results and 2 for Utility Rate and
+                         Economics results.  This value should also
+                         correspond to the first digit of each NHRList
+                         entry ID minus 1.
+         pfData       => Address of an array of 32-bit floating point
+                         numbers to be populated with ALL single or
+                         arrays of results.
+         iMaxValues   => Number of floats defined in above array.
+         iNumMRTs     => Number of MultResultsType structures pointed
+                         to by the following argument.  Only the first
+                         12 will be used, each one must retrieve results
+                         from the same file and the number of items
+                         retrieved for each element should be equal.
+         pMRTs        => Pointer to an array of MultResultsType
+                         structures:
+                            struct MultResultsType
+                            {
+                               int  iEntryID;      // from NHRList.txt
+                               int  iReturnValue;  // success/failure
+                               char pszReportKey[ 34 ];
+                               char pszRowKey[    34 ];
+                            };
+
+
+      Example:
+         To retrieve the energy use by end-use and the end-use sum for
+         a series of electric meters (EM1 and EM2) from the PS-F reports
+         followed by the sum across all electric meters by end-use from
+         the PS-E reports:
+
+            MultResultsType MRTs[4];
+
+            MRTs[0].iEntryID = 2309007;    // EM1 array from PS-F
+            MRTs[0].pszReportKey = "EM1";
+            MRTs[0].pszRowKey[0] = '\0';
+
+            MRTs[1].iEntryID = 2309007;    // EM2 array from PS-F
+            MRTs[1].pszReportKey = "EM2";
+            MRTs[1].pszRowKey[0] = '\0';
+
+            MRTs[2].iEntryID = 2305005;    // Elec Mtr Totals from PS-E
+            MRTs[2].pszReportKey[0] = '\0';
+            MRTs[2].pszRowKey[0]    = '\0';
+
+            float fResults[39];  // 3 MRTs x 13 values per MRT
+            long lRetVal = D2R_GetMultipleResult(
+                                 "E:\\WinDOE2\\doe-2\\",
+                                 "E:\\WinDOE2\\Projects\\Proj1\\Proj1",
+                                 1, fResults, 39, 3, MRTs );
+
+
+3) Additional functions exist enabling you to determine how many
+   building components of a particular type were defined in the
+   input file corresponding to the results you are retrieving as
+   well as the name of each of those components.  These functions
+   enable you to retrieve results for particular building components
+   when you are not sure what the component names were in the
+   original BDl input.
+   Refer to the function definitions in the D2ResX.h header file for
+   more details.
